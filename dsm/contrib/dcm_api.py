@@ -3,7 +3,7 @@ import torch
 import numpy as np
 
 from dsm.contrib.dcm_torch import DeepCoxMixturesTorch
-from dsm.contrib.dcm_utilities import train_dcm, predict_survival
+from dsm.contrib.dcm_utilities import train_dcm, predict_survival, predict_latent_z
 
 
 class DeepCoxMixtures:
@@ -35,10 +35,15 @@ class DeepCoxMixtures:
   >>> model.fit(x, t, e)
 
   """
-  def __init__(self, k=3, layers=None):
+
+  def __init__(self, k=3, layers=None, gamma=0.95, smoothing_factor=1e-4, use_activation=False):
+
     self.k = k
     self.layers = layers
     self.fitted = False
+    self.gamma = gamma
+    self.smoothing_factor = smoothing_factor
+    self.use_activation = use_activation
 
   def __call__(self):
     if self.fitted:
@@ -86,6 +91,8 @@ class DeepCoxMixtures:
     """Helper function to return a torch model."""
     return DeepCoxMixturesTorch(inputdim,
                                 k=self.k,
+                                gamma=self.gamma,
+                                use_activation=self.use_activation,
                                 layers=self.layers,
                                 optimizer=optimizer)
 
@@ -141,8 +148,8 @@ class DeepCoxMixtures:
                          lr=learning_rate,
                          bs=batch_size,
                          return_losses=True,
-                         smoothing_factor=None,
-                         use_posteriors=True,)
+                         smoothing_factor=self.smoothing_factor,
+                         use_posteriors=True)
 
     self.torch_model = (model[0].eval(), model[1])
     self.fitted = True
@@ -175,3 +182,17 @@ class DeepCoxMixtures:
       raise Exception("The model has not been fitted yet. Please fit the " +
                       "model using the `fit` method on some training data " +
                       "before calling `predict_survival`.")
+
+  def predict_latent_z(self, x):
+
+    x = self._preprocess_test_data(x)
+
+    if self.fitted:
+      scores = predict_latent_z(self.torch_model, x)
+      return scores
+    else:
+      raise Exception("The model has not been fitted yet. Please fit the " +
+                      "model using the `fit` method on some training data " +
+                      "before calling `predict_latent_z`.")
+
+ 
