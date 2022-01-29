@@ -116,7 +116,7 @@ def train_dsm(model,
               x_train, t_train, e_train,
               x_valid, t_valid, e_valid,
               n_iter=10000, lr=1e-3, elbo=True,
-              bs=100, early_stop=True):
+              bs=100, early_stop=True, pretrain=True):
     """Function to train the torch instance of the model."""
 
     logging.info('Pretraining the Underlying Distributions...')
@@ -126,19 +126,20 @@ def train_dsm(model,
     e_train_ = _reshape_tensor_with_nans(e_train)
     t_valid_ = _reshape_tensor_with_nans(t_valid)
     e_valid_ = _reshape_tensor_with_nans(e_valid)
+    
+    if pretrain:
+        premodel = pretrain_dsm(model,
+                                t_train_,
+                                e_train_,
+                                t_valid_,
+                                e_valid_,
+                                n_iter=10000,
+                                lr=1e-2,
+                                thres=1e-4)
 
-    premodel = pretrain_dsm(model,
-                            t_train_,
-                            e_train_,
-                            t_valid_,
-                            e_valid_,
-                            n_iter=10000,
-                            lr=1e-2,
-                            thres=1e-4)
-
-    for r in range(model.risks):
-        model.shape[str(r + 1)].data.fill_(float(premodel.shape[str(r + 1)]))
-        model.scale[str(r + 1)].data.fill_(float(premodel.scale[str(r + 1)]))
+        for r in range(model.risks):
+            model.shape[str(r + 1)].data.fill_(float(premodel.shape[str(r + 1)]))
+            model.scale[str(r + 1)].data.fill_(float(premodel.scale[str(r + 1)]))
 
     model.double()
     optimizer = get_optimizer(model, lr)
@@ -199,7 +200,7 @@ def train_dsm(model,
                     del dics
                     gc.collect()
 
-                    return model, costs
+                    return model, costs, train_costs
                 else:
                     patience += 1
             else:

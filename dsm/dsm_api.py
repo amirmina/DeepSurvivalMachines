@@ -73,7 +73,8 @@ class DSMBase():
 
     def fit(self, x, t, e, vsize=0.15, val_data=None,
             iters=1, learning_rate=1e-3, batch_size=100,
-            elbo=True, optimizer="Adam", random_state=100, early_stop=True):
+            elbo=True, optimizer="Adam", random_state=100, 
+            early_stop=True, pretrain=True):
 
         r"""This method is used to train an instance of the DSM model.
 
@@ -124,7 +125,7 @@ class DSMBase():
         model = self._gen_torch_model(inputdim, optimizer, risks=maxrisk)
         model, valid_loss, train_loss = train_dsm(
             model, x_train, t_train, e_train, x_val, t_val, e_val,
-            n_iter=iters, lr=learning_rate, elbo=elbo, bs=batch_size, early_stop=early_stop
+            n_iter=iters, lr=learning_rate, elbo=elbo, bs=batch_size, early_stop=early_stop, pretrain=pretrain
         )
 
         self.torch_model = model.eval()
