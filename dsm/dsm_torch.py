@@ -31,9 +31,10 @@ Note: NOT DESIGNED TO BE CALLED DIRECTLY!!!
 
 """
 
-import torch.nn as nn
-import torch
 import numpy as np
+import torch
+import torch.nn as nn
+import torchtuples as tt
 
 __pdoc__ = {}
 
@@ -44,7 +45,7 @@ for clsn in ['DeepSurvivalMachinesTorch',
         __pdoc__[clsn + '.' + membr] = False
 
 
-def create_representation(inputdim, layers, activation):
+def create_representation(inputdim, outputdim, layers, act, batch_norm=True, dropout=0.1):
     r"""Helper function to generate the representation function for DSM.
 
   Deep Survival Machines learns a representation (\ Phi(X) \) for the input
@@ -69,23 +70,24 @@ def create_representation(inputdim, layers, activation):
   an MLP with torch.nn.Module with the specfied structure.
 
   """
+#     modules = []
+#     prevdim = inputdim
 
-    if activation == 'ReLU6':
-        act = nn.ReLU6()
-    elif activation == 'ReLU':
-        act = nn.ReLU()
-    elif activation == 'SeLU':
-        act = nn.SELU()
-
-    modules = []
-    prevdim = inputdim
-
-    for hidden in layers:
-        modules.append(nn.Linear(prevdim, hidden, bias=False))
-        modules.append(act)
-        prevdim = hidden
-
-    return nn.Sequential(*modules)
+#     for hidden in layers:
+#         modules.append(nn.Linear(prevdim, hidden, bias=False))
+#         modules.append(act)
+#         prevdim = hidden
+#         nn.Sequential(*modules)
+    net = tt.practical.MLPVanilla(
+        inputdim, 
+        num_nodes=layers,
+        out_features=outputdim, 
+        batch_norm=batch_norm, 
+        dropout=dropout, 
+        output_bias=False,
+        # activation=act
+    )
+    return net
 
 
 class DeepSurvivalMachinesTorch(nn.Module):
@@ -114,7 +116,7 @@ class DeepSurvivalMachinesTorch(nn.Module):
   init: tuple
       A tuple for initialization of the parameters for the underlying
       distributions. (shape, scale).
-  activation: str
+  act: str
       Choice of activation function for the MLP representation.
       One of 'ReLU6', 'ReLU' or 'SeLU'.
       Default is 'ReLU6'.
@@ -135,19 +137,19 @@ class DeepSurvivalMachinesTorch(nn.Module):
     def _init_dsm_layers(self, lastdim):
 
         if self.dist in ['Weibull']:
-            self.act = nn.SELU()
+            # self.act = nn.SELU()
             self.shape = nn.ParameterDict({str(r + 1): nn.Parameter(-torch.ones(self.k))
                                            for r in range(self.risks)})
             self.scale = nn.ParameterDict({str(r + 1): nn.Parameter(-torch.ones(self.k))
                                            for r in range(self.risks)})
         elif self.dist in ['Normal']:
-            self.act = nn.Identity()
+            # self.act = nn.Identity()
             self.shape = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
                                            for r in range(self.risks)})
             self.scale = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
                                            for r in range(self.risks)})
         elif self.dist in ['LogNormal']:
-            self.act = nn.Tanh()
+            # self.act = nn.Tanh()
             self.shape = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
                                            for r in range(self.risks)})
             self.scale = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
@@ -168,9 +170,8 @@ class DeepSurvivalMachinesTorch(nn.Module):
             nn.Linear(lastdim, self.k, bias=True)
         ) for r in range(self.risks)})
 
-    def __init__(self, inputdim, k, layers=None, dist='Weibull',
-                 temp=1000., discount=1.0, optimizer='Adam',
-                 risks=1):
+    def __init__(self, inputdim, k, layers=None, batch_norm=True, dropout=0.1, dist='Weibull',
+                 temp=1000., discount=1.0, optimizer='Adam', risks=1, act=nn.ReLU6):
         super(DeepSurvivalMachinesTorch, self).__init__()
 
         self.k = k
@@ -179,6 +180,9 @@ class DeepSurvivalMachinesTorch(nn.Module):
         self.discount = float(discount)
         self.optimizer = optimizer
         self.risks = risks
+        self.act = act
+        self.batch_norm = batch_norm
+        self.dropout = dropout
 
         if layers is None: layers = []
         self.layers = layers
@@ -189,7 +193,7 @@ class DeepSurvivalMachinesTorch(nn.Module):
             lastdim = layers[-1]
 
         self._init_dsm_layers(lastdim)
-        self.embedding = create_representation(inputdim, layers, 'ReLU6')
+        self.embedding = create_representation(inputdim, lastdim, self.layers, self.act, self.batch_norm, self.dropout)
 
     def forward(self, x, risk='1'):
         """The forward function that is called when data is passed through DSM.

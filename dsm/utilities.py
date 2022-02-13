@@ -196,17 +196,14 @@ def train_dsm(model,
                 if patience >= 10:
                     minm = np.argmin(costs)
                     model.load_state_dict(dics[minm])
-
                     del dics
                     gc.collect()
-
                     return model, costs, train_costs
                 else:
                     patience += 1
             else:
                 patience = 0
-
-        oldcost = costs[-1]
+                oldcost = costs[-1]
 
     minm = np.argmin(costs)
     model.load_state_dict(dics[minm])

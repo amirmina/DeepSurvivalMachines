@@ -39,6 +39,7 @@ from dsm.utilities import _get_padded_features, _get_padded_targets
 from dsm.utilities import _reshape_tensor_with_nans
 
 import torch
+import torch.nn as nn
 import numpy as np
 
 __pdoc__ = {}
@@ -51,25 +52,33 @@ __pdoc__["DSMBase"] = False
 class DSMBase():
     """Base Class for all DSM models"""
 
-    def __init__(self, k=3, layers=None, distribution="Weibull",
-                 temp=1000., discount=1.0):
+    def __init__(self, k=3, layers=None, batch_norm=True, dropout=0.1, distribution="Weibull",
+                 temp=1000., discount=1.0, act=nn.ReLU6(), optimizer="Adam"):
         self.k = k
         self.layers = layers
+        self.batch_norm = batch_norm
+        self.dropout = dropout
         self.dist = distribution
         self.temp = temp
         self.discount = discount
         self.fitted = False
+        self.act = act
+        self.optimizer = optimizer
 
-    def _gen_torch_model(self, inputdim, optimizer, risks):
+    def _gen_torch_model(self, inputdim, risks):
         """Helper function to return a torch model."""
         return DeepSurvivalMachinesTorch(inputdim,
                                          k=self.k,
                                          layers=self.layers,
+                                         batch_norm=self.batch_norm,
+                                         dropout=self.dropout,
                                          dist=self.dist,
                                          temp=self.temp,
                                          discount=self.discount,
-                                         optimizer=optimizer,
-                                         risks=risks)
+                                         optimizer=self.optimizer,
+                                         risks=risks,
+                                         act=self.act
+                                        )
 
     def fit(self, x, t, e, vsize=0.15, val_data=None,
             iters=1, learning_rate=1e-3, batch_size=100,
@@ -122,7 +131,7 @@ class DSMBase():
             inputdim = x_train.shape[-1]
 
         maxrisk = int(np.nanmax(e_train.cpu().numpy()))
-        model = self._gen_torch_model(inputdim, optimizer, risks=maxrisk)
+        model = self._gen_torch_model(inputdim, risks=maxrisk)
         model, valid_loss, train_loss = train_dsm(
             model, x_train, t_train, e_train, x_val, t_val, e_val,
             n_iter=iters, lr=learning_rate, elbo=elbo, bs=batch_size, early_stop=early_stop, pretrain=pretrain
@@ -378,7 +387,7 @@ class DeepRecurrentSurvivalMachines(DSMBase):
         self.hidden = hidden
         self.typ = typ
 
-    def _gen_torch_model(self, inputdim, optimizer, risks):
+    def _gen_torch_model(self, inputdim, risks):
         """Helper function to return a torch model."""
         return DeepRecurrentSurvivalMachinesTorch(inputdim,
                                                   k=self.k,
@@ -387,7 +396,7 @@ class DeepRecurrentSurvivalMachines(DSMBase):
                                                   dist=self.dist,
                                                   temp=self.temp,
                                                   discount=self.discount,
-                                                  optimizer=optimizer,
+                                                  optimizer=self.optimizer,
                                                   typ=self.typ,
                                                   risks=risks)
 
@@ -451,7 +460,7 @@ class DeepConvolutionalSurvivalMachines(DSMBase):
         self.hidden = hidden
         self.typ = typ
 
-    def _gen_torch_model(self, inputdim, optimizer, risks):
+    def _gen_torch_model(self, inputdim, risks):
         """Helper function to return a torch model."""
         return DeepConvolutionalSurvivalMachinesTorch(inputdim,
                                                       k=self.k,
@@ -459,8 +468,8 @@ class DeepConvolutionalSurvivalMachines(DSMBase):
                                                       dist=self.dist,
                                                       temp=self.temp,
                                                       discount=self.discount,
-                                                      optimizer=optimizer,
-                                                      typ=self.typ,
+                                                      optimizer=self.optimizer,
+                                                      # typ=self.typ,
                                                       risks=risks)
 
 
@@ -480,7 +489,7 @@ class DeepCNNRNNSurvivalMachines(DeepRecurrentSurvivalMachines):
         self.hidden = hidden
         self.typ = typ
 
-    def _gen_torch_model(self, inputdim, optimizer, risks):
+    def _gen_torch_model(self, inputdim, risks):
         """Helper function to return a torch model."""
         return DeepCNNRNNSurvivalMachinesTorch(inputdim,
                                                k=self.k,
@@ -489,6 +498,6 @@ class DeepCNNRNNSurvivalMachines(DeepRecurrentSurvivalMachines):
                                                dist=self.dist,
                                                temp=self.temp,
                                                discount=self.discount,
-                                               optimizer=optimizer,
+                                               optimizer=self.optimizer,
                                                typ=self.typ,
                                                risks=risks)

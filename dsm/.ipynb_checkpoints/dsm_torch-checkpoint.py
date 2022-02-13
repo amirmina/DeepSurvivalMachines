@@ -1,4 +1,3 @@
-# coding=utf-8
 # MIT License
 
 # Copyright (c) 2020 Carnegie Mellon University, Auton Lab
@@ -32,23 +31,22 @@ Note: NOT DESIGNED TO BE CALLED DIRECTLY!!!
 
 """
 
-
-import torch.nn as nn
-import torch
 import numpy as np
+import torch
+import torch.nn as nn
+import torchtuples as tt
 
 __pdoc__ = {}
 
 for clsn in ['DeepSurvivalMachinesTorch',
              'DeepRecurrentSurvivalMachinesTorch',
              'DeepConvolutionalSurvivalMachines']:
-  for membr in ['training', 'dump_patches']:
+    for membr in ['training', 'dump_patches']:
+        __pdoc__[clsn + '.' + membr] = False
 
-    __pdoc__[clsn+'.'+membr] = False
 
-
-def create_representation(inputdim, layers, activation):
-  r"""Helper function to generate the representation function for DSM.
+def create_representation(inputdim, outputdim, layers, act, batch_norm=True, dropout=0.1):
+    r"""Helper function to generate the representation function for DSM.
 
   Deep Survival Machines learns a representation (\ Phi(X) \) for the input
   data. This representation is parameterized using a Non Linear Multilayer
@@ -72,28 +70,28 @@ def create_representation(inputdim, layers, activation):
   an MLP with torch.nn.Module with the specfied structure.
 
   """
+#     modules = []
+#     prevdim = inputdim
 
-  if activation == 'ReLU6':
-    act = nn.ReLU6()
-  elif activation == 'ReLU':
-    act = nn.ReLU()
-  elif activation == 'SeLU':
-    act = nn.SELU()
-
-  modules = []
-  prevdim = inputdim
-
-  for hidden in layers:
-    modules.append(nn.Linear(prevdim, hidden, bias=False))
-    modules.append(act)
-    prevdim = hidden
-
-  return nn.Sequential(*modules)
-
+#     for hidden in layers:
+#         modules.append(nn.Linear(prevdim, hidden, bias=False))
+#         modules.append(act)
+#         prevdim = hidden
+#         nn.Sequential(*modules)
+    net = tt.practical.MLPVanilla(
+        inputdim, 
+        num_nodes=layers,
+        out_features=outputdim, 
+        batch_norm=batch_norm, 
+        dropout=dropout, 
+        output_bias=False,
+        # activation=act
+    )
+    return net
 
 
 class DeepSurvivalMachinesTorch(nn.Module):
-  """A Torch implementation of Deep Survival Machines model.
+    """A Torch implementation of Deep Survival Machines model.
 
   This is an implementation of Deep Survival Machines model in torch.
   It inherits from the torch.nn.Module class and includes references to the
@@ -118,7 +116,7 @@ class DeepSurvivalMachinesTorch(nn.Module):
   init: tuple
       A tuple for initialization of the parameters for the underlying
       distributions. (shape, scale).
-  activation: str
+  act: str
       Choice of activation function for the MLP representation.
       One of 'ReLU6', 'ReLU' or 'SeLU'.
       Default is 'ReLU6'.
@@ -136,83 +134,87 @@ class DeepSurvivalMachinesTorch(nn.Module):
 
   """
 
-  def _init_dsm_layers(self, lastdim):
+    def _init_dsm_layers(self, lastdim):
 
-    if self.dist in ['Weibull']:
-      self.act = nn.SELU()
-      self.shape = nn.ParameterDict({str(r+1): nn.Parameter(-torch.ones(self.k))
-                                     for r in range(self.risks)})
-      self.scale = nn.ParameterDict({str(r+1): nn.Parameter(-torch.ones(self.k))
-                                     for r in range(self.risks)})
-    elif self.dist in ['Normal']:
-      self.act = nn.Identity()
-      self.shape = nn.ParameterDict({str(r+1): nn.Parameter(torch.ones(self.k))
-                                     for r in range(self.risks)})
-      self.scale = nn.ParameterDict({str(r+1): nn.Parameter(torch.ones(self.k))
-                                     for r in range(self.risks)})
-    elif self.dist in ['LogNormal']:
-      self.act = nn.Tanh()
-      self.shape = nn.ParameterDict({str(r+1): nn.Parameter(torch.ones(self.k))
-                                     for r in range(self.risks)})
-      self.scale = nn.ParameterDict({str(r+1): nn.Parameter(torch.ones(self.k))
-                                     for r in range(self.risks)})
-    else:
-      raise NotImplementedError('Distribution: '+self.dist+' not implemented'+
-                                ' yet.')
+        if self.dist in ['Weibull']:
+            # self.act = nn.SELU()
+            self.shape = nn.ParameterDict({str(r + 1): nn.Parameter(-torch.ones(self.k))
+                                           for r in range(self.risks)})
+            self.scale = nn.ParameterDict({str(r + 1): nn.Parameter(-torch.ones(self.k))
+                                           for r in range(self.risks)})
+        elif self.dist in ['Normal']:
+            # self.act = nn.Identity()
+            self.shape = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
+                                           for r in range(self.risks)})
+            self.scale = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
+                                           for r in range(self.risks)})
+        elif self.dist in ['LogNormal']:
+            # self.act = nn.Tanh()
+            self.shape = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
+                                           for r in range(self.risks)})
+            self.scale = nn.ParameterDict({str(r + 1): nn.Parameter(torch.ones(self.k))
+                                           for r in range(self.risks)})
+        else:
+            raise NotImplementedError('Distribution: ' + self.dist + ' not implemented' +
+                                      ' yet.')
 
-    self.gate = nn.ModuleDict({str(r+1): nn.Sequential(
-        nn.Linear(lastdim, self.k, bias=False)
+        self.gate = nn.ModuleDict({str(r + 1): nn.Sequential(
+            nn.Linear(lastdim, self.k, bias=False)
         ) for r in range(self.risks)})
 
-    self.scaleg = nn.ModuleDict({str(r+1): nn.Sequential(
-        nn.Linear(lastdim, self.k, bias=True)
+        self.scaleg = nn.ModuleDict({str(r + 1): nn.Sequential(
+            nn.Linear(lastdim, self.k, bias=True)
         ) for r in range(self.risks)})
 
-    self.shapeg = nn.ModuleDict({str(r+1): nn.Sequential(
-        nn.Linear(lastdim, self.k, bias=True)
+        self.shapeg = nn.ModuleDict({str(r + 1): nn.Sequential(
+            nn.Linear(lastdim, self.k, bias=True)
         ) for r in range(self.risks)})
 
-  def __init__(self, inputdim, k, layers=None, dist='Weibull',
-               temp=1000., discount=1.0, optimizer='Adam',
-               risks=1):
-    super(DeepSurvivalMachinesTorch, self).__init__()
+    def __init__(self, inputdim, k, layers=None, batch_norm=True, dropout=0.1, dist='Weibull',
+                 temp=1000., discount=1.0, optimizer='Adam', risks=1, act=nn.ReLU6):
+        super(DeepSurvivalMachinesTorch, self).__init__()
 
-    self.k = k
-    self.dist = dist
-    self.temp = float(temp)
-    self.discount = float(discount)
-    self.optimizer = optimizer
-    self.risks = risks
+        self.k = k
+        self.dist = dist
+        self.temp = float(temp)
+        self.discount = float(discount)
+        self.optimizer = optimizer
+        self.risks = risks
+        self.act = act
+        self.batch_norm = batch_norm
+        self.dropout = dropout
 
-    if layers is None: layers = []
-    self.layers = layers
+        if layers is None: layers = []
+        self.layers = layers
 
-    if len(layers) == 0: lastdim = inputdim
-    else: lastdim = layers[-1]
+        if len(layers) == 0:
+            lastdim = inputdim
+        else:
+            lastdim = layers[-1]
 
-    self._init_dsm_layers(lastdim)
-    self.embedding = create_representation(inputdim, layers, 'ReLU6')
+        self._init_dsm_layers(lastdim)
+        self.embedding = create_representation(inputdim, lastdim, self.layers, self.act, self.batch_norm, self.dropout)
 
-
-  def forward(self, x, risk='1'):
-    """The forward function that is called when data is passed through DSM.
+    def forward(self, x, risk='1'):
+        """The forward function that is called when data is passed through DSM.
 
     Args:
       x:
         a torch.tensor of the input features.
 
     """
-    xrep = self.embedding(x)
-    dim = x.shape[0]
-    return(self.act(self.shapeg[risk](xrep))+self.shape[risk].expand(dim, -1),
-           self.act(self.scaleg[risk](xrep))+self.scale[risk].expand(dim, -1),
-           self.gate[risk](xrep)/self.temp)
+        xrep = self.embedding(x)
+        dim = x.shape[0]
+        return (self.act(self.shapeg[risk](xrep)) + self.shape[risk].expand(dim, -1),
+                self.act(self.scaleg[risk](xrep)) + self.scale[risk].expand(dim, -1),
+                self.gate[risk](xrep) / self.temp)
 
-  def get_shape_scale(self, risk='1'):
-    return(self.shape[risk], self.scale[risk])
+    def get_shape_scale(self, risk='1'):
+        return (self.shape[risk], self.scale[risk])
+
 
 class DeepRecurrentSurvivalMachinesTorch(DeepSurvivalMachinesTorch):
-  """A Torch implementation of Deep Recurrent Survival Machines model.
+    """A Torch implementation of Deep Recurrent Survival Machines model.
 
   This is an implementation of Deep Recurrent Survival Machines model
   in torch. It inherits from `DeepSurvivalMachinesTorch` and replaces the
@@ -252,40 +254,38 @@ class DeepRecurrentSurvivalMachinesTorch(DeepSurvivalMachinesTorch):
 
   """
 
-  def __init__(self, inputdim, k, typ='LSTM', layers=1,
-               hidden=None, dist='Weibull',
-               temp=1000., discount=1.0,
-               optimizer='Adam', risks=1):
-               
-    super(DeepSurvivalMachinesTorch, self).__init__()
+    def __init__(self, inputdim, k, typ='LSTM', layers=1,
+                 hidden=None, dist='Weibull',
+                 temp=1000., discount=1.0,
+                 optimizer='Adam', risks=1):
 
-    self.k = k
-    self.dist = dist
-    self.temp = float(temp)
-    self.discount = float(discount)
-    self.optimizer = optimizer
-    self.hidden = hidden
-    self.layers = layers
-    self.typ = typ
-    self.risks = risks
+        super(DeepSurvivalMachinesTorch, self).__init__()
 
-    self._init_dsm_layers(hidden)
+        self.k = k
+        self.dist = dist
+        self.temp = float(temp)
+        self.discount = float(discount)
+        self.optimizer = optimizer
+        self.hidden = hidden
+        self.layers = layers
+        self.typ = typ
+        self.risks = risks
 
-    if self.typ == 'LSTM':
-      self.embedding = nn.LSTM(inputdim, hidden, layers,
-                               bias=False, batch_first=True)
-    if self.typ == 'RNN':
-      self.embedding = nn.RNN(inputdim, hidden, layers,
-                              bias=False, batch_first=True,
-                              nonlinearity='relu')
-    if self.typ == 'GRU':
-      self.embedding = nn.GRU(inputdim, hidden, layers,
-                              bias=False, batch_first=True)
+        self._init_dsm_layers(hidden)
 
+        if self.typ == 'LSTM':
+            self.embedding = nn.LSTM(inputdim, hidden, layers,
+                                     bias=False, batch_first=True)
+        if self.typ == 'RNN':
+            self.embedding = nn.RNN(inputdim, hidden, layers,
+                                    bias=False, batch_first=True,
+                                    nonlinearity='relu')
+        if self.typ == 'GRU':
+            self.embedding = nn.GRU(inputdim, hidden, layers,
+                                    bias=False, batch_first=True)
 
-
-  def forward(self, x, risk='1'):
-    """The forward function that is called when data is passed through DSM.
+    def forward(self, x, risk='1'):
+        """The forward function that is called when data is passed through DSM.
 
     Note: As compared to DSM, the input data for DRSM is a tensor. The forward
     function involves unpacking the tensor in-order to directly use the
@@ -297,28 +297,29 @@ class DeepRecurrentSurvivalMachinesTorch(DeepSurvivalMachinesTorch):
 
     """
 
-    x = x.detach().clone()
-    inputmask = ~torch.isnan(x[:, :, 0]).reshape(-1)
-    x[torch.isnan(x)] = 0
+        x = x.detach().clone()
+        inputmask = ~torch.isnan(x[:, :, 0]).reshape(-1)
+        x[torch.isnan(x)] = 0
 
-    xrep, _ = self.embedding(x)
-    xrep = xrep.contiguous().view(-1, self.hidden)
-    xrep = xrep[inputmask]
-    xrep = nn.ReLU6()(xrep)
+        xrep, _ = self.embedding(x)
+        xrep = xrep.contiguous().view(-1, self.hidden)
+        xrep = xrep[inputmask]
+        xrep = nn.ReLU6()(xrep)
 
-    dim = xrep.shape[0]
+        dim = xrep.shape[0]
 
-    return(self.act(self.shapeg[risk](xrep))+self.shape[risk].expand(dim, -1),
-           self.act(self.scaleg[risk](xrep))+self.scale[risk].expand(dim, -1),
-           self.gate[risk](xrep)/self.temp)
+        return (self.act(self.shapeg[risk](xrep)) + self.shape[risk].expand(dim, -1),
+                self.act(self.scaleg[risk](xrep)) + self.scale[risk].expand(dim, -1),
+                self.gate[risk](xrep) / self.temp)
 
-  def get_shape_scale(self, risk='1'):
-    return(self.shape[risk],
-           self.scale[risk])
+    def get_shape_scale(self, risk='1'):
+        return (self.shape[risk],
+                self.scale[risk])
+
 
 def create_conv_representation(inputdim, hidden,
                                typ='ConvNet', add_linear=True):
-  r"""Helper function to generate the representation function for DSM.
+    r"""Helper function to generate the representation function for DSM.
 
   Deep Survival Machines learns a representation (\ Phi(X) \) for the input
   data. This representation is parameterized using a Convolutional Neural
@@ -343,32 +344,31 @@ def create_conv_representation(inputdim, hidden,
 
   """
 
-  if typ == 'ConvNet':
+    if typ == 'ConvNet':
+        embedding = nn.Sequential(
+            nn.Conv2d(1, 6, 3),
+            nn.ReLU6(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(6, 16, 3),
+            nn.ReLU6(),
+            nn.MaxPool2d(2, 2),
+            nn.Flatten(),
+            nn.ReLU6(),
+        )
 
-    embedding = nn.Sequential(
-        nn.Conv2d(1, 6, 3),
-        nn.ReLU6(),
-        nn.MaxPool2d(2, 2),
-        nn.Conv2d(6, 16, 3),
-        nn.ReLU6(),
-        nn.MaxPool2d(2, 2),
-        nn.Flatten(),
-        nn.ReLU6(),
-    )
+    if add_linear:
+        dummyx = torch.ones((10, 1) + inputdim)
+        dummyout = embedding.forward(dummyx)
+        outshape = dummyout.shape
 
-  if add_linear:
+        embedding.add_module('linear', torch.nn.Linear(outshape[-1], hidden))
+        embedding.add_module('act', torch.nn.ReLU6())
 
-    dummyx = torch.ones((10, 1) + inputdim)
-    dummyout = embedding.forward(dummyx)
-    outshape = dummyout.shape
+    return embedding
 
-    embedding.add_module('linear', torch.nn.Linear(outshape[-1], hidden))
-    embedding.add_module('act', torch.nn.ReLU6())
-
-  return embedding
 
 class DeepConvolutionalSurvivalMachinesTorch(DeepSurvivalMachinesTorch):
-  """A Torch implementation of Deep Convolutional Survival Machines model.
+    """A Torch implementation of Deep Convolutional Survival Machines model.
 
   This is an implementation of Deep Convolutional Survival Machines model
   in torch. It inherits from `DeepSurvivalMachinesTorch` and replaces the
@@ -406,51 +406,50 @@ class DeepConvolutionalSurvivalMachinesTorch(DeepSurvivalMachinesTorch):
 
   """
 
-  def __init__(self, inputdim, k,
-               embedding=None, hidden=None, dist='Weibull',
-               temp=1000., discount=1.0, optimizer='Adam', risks=1):
-    super(DeepSurvivalMachinesTorch, self).__init__()
+    def __init__(self, inputdim, k,
+                 embedding=None, hidden=None, dist='Weibull',
+                 temp=1000., discount=1.0, optimizer='Adam', risks=1):
+        super(DeepSurvivalMachinesTorch, self).__init__()
 
-    self.k = k
-    self.dist = dist
-    self.temp = float(temp)
-    self.discount = float(discount)
-    self.optimizer = optimizer
-    self.hidden = hidden
-    self.risks = risks
+        self.k = k
+        self.dist = dist
+        self.temp = float(temp)
+        self.discount = float(discount)
+        self.optimizer = optimizer
+        self.hidden = hidden
+        self.risks = risks
 
-    self._init_dsm_layers(hidden)
+        self._init_dsm_layers(hidden)
 
-    if embedding is None:
-      self.embedding = create_conv_representation(inputdim=inputdim,
-                                                  hidden=hidden,
-                                                  typ='ConvNet')
-    else:
-      self.embedding = embedding
+        if embedding is None:
+            self.embedding = create_conv_representation(inputdim=inputdim,
+                                                        hidden=hidden,
+                                                        typ='ConvNet')
+        else:
+            self.embedding = embedding
 
-
-  def forward(self, x, risk='1'):
-    """The forward function that is called when data is passed through DSM.
+    def forward(self, x, risk='1'):
+        """The forward function that is called when data is passed through DSM.
 
     Args:
       x:
         a torch.tensor of the input features.
 
     """
-    xrep = self.embedding(x)
+        xrep = self.embedding(x)
 
-    dim = x.shape[0]
-    return(self.act(self.shapeg[risk](xrep))+self.shape[risk].expand(dim, -1),
-           self.act(self.scaleg[risk](xrep))+self.scale[risk].expand(dim, -1),
-           self.gate[risk](xrep)/self.temp)
+        dim = x.shape[0]
+        return (self.act(self.shapeg[risk](xrep)) + self.shape[risk].expand(dim, -1),
+                self.act(self.scaleg[risk](xrep)) + self.scale[risk].expand(dim, -1),
+                self.gate[risk](xrep) / self.temp)
 
-  def get_shape_scale(self, risk='1'):
-    return(self.shape[risk],
-           self.scale[risk])
+    def get_shape_scale(self, risk='1'):
+        return (self.shape[risk],
+                self.scale[risk])
 
 
 class DeepCNNRNNSurvivalMachinesTorch(DeepRecurrentSurvivalMachinesTorch):
-  """A Torch implementation of Deep CNN Recurrent Survival Machines model.
+    """A Torch implementation of Deep CNN Recurrent Survival Machines model.
 
   This is an implementation of Deep Recurrent Survival Machines model
   in torch. It inherits from `DeepSurvivalMachinesTorch` and replaces the
@@ -490,39 +489,39 @@ class DeepCNNRNNSurvivalMachinesTorch(DeepRecurrentSurvivalMachinesTorch):
 
   """
 
-  def __init__(self, inputdim, k, typ='LSTM', layers=1,
-               hidden=None, dist='Weibull',
-               temp=1000., discount=1.0,
-               optimizer='Adam', risks=1):
-    super(DeepSurvivalMachinesTorch, self).__init__()
+    def __init__(self, inputdim, k, typ='LSTM', layers=1,
+                 hidden=None, dist='Weibull',
+                 temp=1000., discount=1.0,
+                 optimizer='Adam', risks=1):
+        super(DeepSurvivalMachinesTorch, self).__init__()
 
-    self.k = k
-    self.dist = dist
-    self.temp = float(temp)
-    self.discount = float(discount)
-    self.optimizer = optimizer
-    self.hidden = hidden
-    self.layers = layers
-    self.typ = typ
-    self.risks = risks
+        self.k = k
+        self.dist = dist
+        self.temp = float(temp)
+        self.discount = float(discount)
+        self.optimizer = optimizer
+        self.hidden = hidden
+        self.layers = layers
+        self.typ = typ
+        self.risks = risks
 
-    self._init_dsm_layers(hidden)
+        self._init_dsm_layers(hidden)
 
-    self.cnn = create_conv_representation(inputdim, hidden)
+        self.cnn = create_conv_representation(inputdim, hidden)
 
-    if self.typ == 'LSTM':
-      self.rnn = nn.LSTM(hidden, hidden, layers,
-                         bias=False, batch_first=True)
-    if self.typ == 'RNN':
-      self.rnn = nn.RNN(hidden, hidden, layers,
-                        bias=False, batch_first=True,
-                        nonlinearity='relu')
-    if self.typ == 'GRU':
-      self.rnn = nn.GRU(hidden, hidden, layers,
-                        bias=False, batch_first=True)
+        if self.typ == 'LSTM':
+            self.rnn = nn.LSTM(hidden, hidden, layers,
+                               bias=False, batch_first=True)
+        if self.typ == 'RNN':
+            self.rnn = nn.RNN(hidden, hidden, layers,
+                              bias=False, batch_first=True,
+                              nonlinearity='relu')
+        if self.typ == 'GRU':
+            self.rnn = nn.GRU(hidden, hidden, layers,
+                              bias=False, batch_first=True)
 
-  def forward(self, x, risk='1'):
-    """The forward function that is called when data is passed through DSM.
+    def forward(self, x, risk='1'):
+        """The forward function that is called when data is passed through DSM.
 
     Note: As compared to DSM, the input data for DCRSM is a tensor. The forward
     function involves unpacking the tensor in-order to directly use the
@@ -534,28 +533,28 @@ class DeepCNNRNNSurvivalMachinesTorch(DeepRecurrentSurvivalMachinesTorch):
 
     """
 
-    # Input Mask
-    x = x.detach().clone()
-    inputmask = ~torch.isnan(x[:, :, 0, 0]).reshape(-1)
-    x[torch.isnan(x)] = 0
+        # Input Mask
+        x = x.detach().clone()
+        inputmask = ~torch.isnan(x[:, :, 0, 0]).reshape(-1)
+        x[torch.isnan(x)] = 0
 
-    # CNN Layer
-    xcnn = x.view((-1, 1)+x.shape[2:])
-    filteredx = self.cnn(xcnn)
+        # CNN Layer
+        xcnn = x.view((-1, 1) + x.shape[2:])
+        filteredx = self.cnn(xcnn)
 
-    # RNN Layer
-    xrnn = filteredx.view(tuple(x.shape)[:2] + (-1,))
-    xrnn, _ = self.rnn(xrnn)
-    xrep = xrnn.contiguous().view(-1, self.hidden)
+        # RNN Layer
+        xrnn = filteredx.view(tuple(x.shape)[:2] + (-1,))
+        xrnn, _ = self.rnn(xrnn)
+        xrep = xrnn.contiguous().view(-1, self.hidden)
 
-    # Unfolding for DSM
-    xrep = xrep[inputmask]
-    xrep = nn.ReLU6()(xrep)
-    dim = xrep.shape[0]
-    return(self.act(self.shapeg[risk](xrep))+self.shape[risk].expand(dim, -1),
-           self.act(self.scaleg[risk](xrep))+self.scale[risk].expand(dim, -1),
-           self.gate[risk](xrep)/self.temp)
+        # Unfolding for DSM
+        xrep = xrep[inputmask]
+        xrep = nn.ReLU6()(xrep)
+        dim = xrep.shape[0]
+        return (self.act(self.shapeg[risk](xrep)) + self.shape[risk].expand(dim, -1),
+                self.act(self.scaleg[risk](xrep)) + self.scale[risk].expand(dim, -1),
+                self.gate[risk](xrep) / self.temp)
 
-  def get_shape_scale(self, risk='1'):
-    return(self.shape[risk],
-           self.scale[risk])
+    def get_shape_scale(self, risk='1'):
+        return (self.shape[risk],
+                self.scale[risk])
