@@ -35,6 +35,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchtuples as tt
+from pytorch_forecasting.models.nbeats.sub_modules import NBEATSBlock
 
 __pdoc__ = {}
 
@@ -193,8 +194,13 @@ class DeepSurvivalMachinesTorch(nn.Module):
             lastdim = layers[-1]
 
         self._init_dsm_layers(lastdim)
-        self.embedding = create_representation(inputdim, lastdim, self.layers, self.act, self.batch_norm, self.dropout)
-
+        # self.embedding = create_representation(inputdim, lastdim, self.layers, self.act, self.batch_norm, self.dropout)
+        net_block = NBEATSBlock(
+            inputdim, inputdim,
+            backcast_length=inputdim,
+            dropout=0.1
+        )
+        self.embedding = net_block
     def forward(self, x, risk='1'):
         """The forward function that is called when data is passed through DSM.
 
