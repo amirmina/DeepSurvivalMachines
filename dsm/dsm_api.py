@@ -53,7 +53,7 @@ class DSMBase():
     """Base Class for all DSM models"""
 
     def __init__(self, k=3, layers=None, batch_norm=True, dropout=0.1, distribution="Weibull",
-                 temp=1000., discount=1.0, act=nn.ReLU6(), optimizer="Adam"):
+                 temp=1000., discount=1.0, act=nn.ReLU6(), optimizer="Adam", arch="MLP"):
         self.k = k
         self.layers = layers
         self.batch_norm = batch_norm
@@ -63,6 +63,7 @@ class DSMBase():
         self.discount = discount
         self.fitted = False
         self.act = act
+        self.arch = arch
         self.optimizer = optimizer
 
     def _gen_torch_model(self, inputdim, risks):
@@ -77,7 +78,8 @@ class DSMBase():
                                          discount=self.discount,
                                          optimizer=self.optimizer,
                                          risks=risks,
-                                         act=self.act
+                                         act=self.act,
+                                         arch=self.arch
                                         )
 
     def fit(self, x, t, e, vsize=0.15, val_data=None,

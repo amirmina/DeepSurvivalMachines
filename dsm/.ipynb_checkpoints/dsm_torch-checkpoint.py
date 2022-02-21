@@ -35,7 +35,21 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchtuples as tt
-from pytorch_forecasting.models.nbeats.sub_modules import NBEATSBlock
+# from pytorch_forecasting.models.nbeats.sub_modules import NBEATSBlock
+from tsai.all import *
+
+
+class TSNet(nn.Module):
+    def __init__(self, inputdim, outputdim, arch_name):
+        super(TSNet, self).__init__()
+        self.net = eval(arch_name)(inputdim, outputdim)
+        # self.fc = nn.Linear(128, 1)
+
+    def forward(self, x):
+        x = torch.unsqueeze(x, -1)
+        x = self.net(x)
+        return x
+
 
 __pdoc__ = {}
 
@@ -172,7 +186,7 @@ class DeepSurvivalMachinesTorch(nn.Module):
         ) for r in range(self.risks)})
 
     def __init__(self, inputdim, k, layers=None, batch_norm=True, dropout=0.1, dist='Weibull',
-                 temp=1000., discount=1.0, optimizer='Adam', risks=1, act=nn.ReLU6):
+                 temp=1000., discount=1.0, optimizer='Adam', risks=1, act=nn.ReLU6, arch="MLP"):
         super(DeepSurvivalMachinesTorch, self).__init__()
 
         self.k = k
@@ -194,13 +208,16 @@ class DeepSurvivalMachinesTorch(nn.Module):
             lastdim = layers[-1]
 
         self._init_dsm_layers(lastdim)
-        # self.embedding = create_representation(inputdim, lastdim, self.layers, self.act, self.batch_norm, self.dropout)
-        net_block = NBEATSBlock(
-            inputdim, inputdim,
-            backcast_length=inputdim,
-            dropout=0.1
-        )
-        self.embedding = net_block
+        if arch == "MLP":
+            self.embedding = create_representation(inputdim, lastdim, self.layers, self.act, self.batch_norm, self.dropout)
+        else:
+            self.embedding = TSNet(inputdim, lastdim, arch)
+#         net_block = NBEATSBlock(
+#             inputdim, inputdim,
+#             backcast_length=inputdim,
+#             dropout=0.1
+#         )
+#        self.embedding = net_block
     def forward(self, x, risk='1'):
         """The forward function that is called when data is passed through DSM.
 
